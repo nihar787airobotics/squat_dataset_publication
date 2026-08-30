@@ -1,81 +1,57 @@
 """
 08_generate_figures.py
 
-SQUAT DATASET PUBLICATION PIPELINE
-==================================
+SQUAT DATASET PUBLICATION FIGURE GENERATOR
+==========================================
 
-Purpose
--------
-Generate publication-oriented biomechanical figures from the
-temporally normalized squat dataset.
+Dataset:
+    20 participants
+    5 squat repetitions / participant
+    100 repetitions / camera view
+    101 normalized points / repetition
 
-IMPORTANT SCIENTIFIC DESIGN
-----------------------------
-The front and side cameras observe different anatomical planes.
+Views:
+    FRONT  -> frontal-view projected joint trajectories
+    SIDE   -> sagittal-view squat kinematics
 
-SIDE VIEW
----------
-Used primarily for sagittal-plane movement:
-    - Knee flexion/extension
-    - Hip flexion/extension
-    - Ankle angle
-    - Trunk inclination
+Purpose:
+    Generate clean publication-quality figures for the
+    squat dataset paper.
 
-FRONT VIEW
-----------
-Used primarily to examine left-right movement patterns:
-    - Left knee trajectory
-    - Right knee trajectory
-    - Left-right knee asymmetry
-    - Left hip trajectory
-    - Right hip trajectory
-    - Left-right hip asymmetry
-    - Left/right ankle trajectories
-    - Trunk trajectory
+IMPORTANT:
+    These measurements are pose-derived kinematic measures.
+    They are NOT clinical injury diagnoses.
 
-We therefore DO NOT directly interpret a front-view projected
-knee angle as equivalent to a side-view sagittal knee angle.
+OUTPUT STRUCTURE
+----------------
 
-INPUT
------
-data/processed/normalized/front/all_normalized_repetitions.csv
-data/processed/normalized/side/all_normalized_repetitions.csv
+outputs/
+|
++-- angle_graphs/
+|   |
+|   +-- SIDE VIEW
+|   |   +-- side_knee_trajectory.png
+|   |   +-- side_hip_trajectory.png
+|   |   +-- side_ankle_trajectory.png
+|   |   +-- side_trunk_trajectory.png
+|   |
+|   +-- FRONT VIEW
+|       +-- front_knee_left_right.png
+|       +-- front_hip_left_right.png
+|       +-- front_ankle_left_right.png
+|       +-- front_trunk_trajectory.png
+|       +-- front_knee_asymmetry.png
+|       +-- front_hip_asymmetry.png
+|       +-- front_ankle_asymmetry.png
+|
++-- comparison_graph/
+    |
+    +-- side_lower_limb_trajectories.png
+    +-- front_asymmetry_overview.png
 
-OUTPUT
-------
-outputs/angle_graphs/
-outputs/comparison_graph/
-
-FIGURES
--------
-SIDE VIEW
-    1. Knee trajectory
-    2. Hip trajectory
-    3. Ankle trajectory
-    4. Trunk trajectory
-
-FRONT VIEW
-    5. Knee left vs right
-    6. Hip left vs right
-    7. Ankle left vs right
-    8. Trunk trajectory
-    9. Knee asymmetry
-   10. Hip asymmetry
-   11. Ankle asymmetry
-
-COMPARISON
-   12. Side-view knee vs hip
-   13. Side-view lower-limb angles
-   14. Front-view asymmetry overview
-
-Each figure contains:
-    - Individual repetitions where appropriate
-    - Mean trajectory
-    - ±1 standard deviation
-    - 0–100% normalized squat cycle
-
-These are kinematic/pose-derived measurements and are NOT
-clinical injury diagnoses.
+Each figure is saved as:
+    PNG  -> 300 DPI
+    PDF  -> vector publication format
 """
 
 from pathlib import Path
@@ -86,138 +62,115 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================
-# 1. PROJECT PATHS
+# PROJECT PATHS
 # ============================================================
 
 ROOT = Path(__file__).resolve().parents[1]
 
-NORMALIZED_DIR = (
-    ROOT
-    / "data"
-    / "processed"
-    / "normalized"
-)
+NORMALIZED = ROOT / "data" / "processed" / "normalized"
 
-OUTPUT_DIR = (
-    ROOT
-    / "outputs"
-)
+OUTPUTS = ROOT / "outputs"
 
-ANGLE_OUTPUT_DIR = (
-    OUTPUT_DIR
-    / "angle_graphs"
-)
+ANGLE_GRAPHS = OUTPUTS / "angle_graphs"
 
-COMPARISON_OUTPUT_DIR = (
-    OUTPUT_DIR
-    / "comparison_graph"
-)
+COMPARISON_GRAPHS = OUTPUTS / "comparison_graph"
 
-ANGLE_OUTPUT_DIR.mkdir(
+
+ANGLE_GRAPHS.mkdir(
     parents=True,
     exist_ok=True
 )
 
-COMPARISON_OUTPUT_DIR.mkdir(
+COMPARISON_GRAPHS.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
 # ============================================================
-# 2. GENERAL SETTINGS
+# PLOT SETTINGS
 # ============================================================
 
 DPI = 300
 
-FIG_WIDTH = 9
+FIGSIZE = (10, 6)
 
-FIG_HEIGHT = 6
-
-CYCLE_MIN = 0
-
-CYCLE_MAX = 100
+BOTTOM_PERCENT = 50
 
 
 # ============================================================
-# 3. DATA COLUMNS
+# EXPECTED DATA COLUMNS
 # ============================================================
 
-SIDE_SIGNALS = {
-
-    "knee": "side_knee",
-
-    "hip": "side_hip",
-
-    "ankle": "side_ankle",
-
-    "trunk": "side_trunk",
-}
-
-
-FRONT_PAIRS = {
-
-    "knee": (
-        "left_knee_angle_deg",
-        "right_knee_angle_deg",
-    ),
-
-    "hip": (
-        "left_hip_angle_deg",
-        "right_hip_angle_deg",
-    ),
-
-    "ankle": (
-        "left_ankle_angle_deg",
-        "right_ankle_angle_deg",
-    ),
-}
+REQUIRED_BASE_COLUMNS = [
+    "participant",
+    "rep_id",
+    "cycle_percent",
+]
 
 
 # ============================================================
-# 4. LOAD DATA
+# LOAD DATA
 # ============================================================
 
-def load_view(view):
+def load_dataset(view):
 
-    file_path = (
-        NORMALIZED_DIR
+    path = (
+        NORMALIZED
         / view
         / "all_normalized_repetitions.csv"
     )
 
-    if not file_path.exists():
+    print()
+    print("-" * 70)
+    print(f"Loading {view.upper()} dataset")
+    print("-" * 70)
+    print(path)
+
+    if not path.exists():
 
         raise FileNotFoundError(
-            f"Dataset not found:\n{file_path}"
+            f"\nDataset not found:\n{path}"
         )
 
-    df = pd.read_csv(
-        file_path
+    df = pd.read_csv(path)
+
+    print(
+        f"Rows loaded: {len(df)}"
     )
 
-    if df.empty:
+    print(
+        f"Columns: {len(df.columns)}"
+    )
+
+    missing = [
+        c
+        for c in REQUIRED_BASE_COLUMNS
+        if c not in df.columns
+    ]
+
+    if missing:
 
         raise ValueError(
-            f"Dataset is empty:\n{file_path}"
+            f"\nMissing required columns in {view} dataset:\n"
+            f"{missing}\n\n"
+            f"Available columns:\n"
+            f"{list(df.columns)}"
         )
 
-    return df
+    # --------------------------------------------------------
+    # Make sure numeric columns are actually numeric.
+    # --------------------------------------------------------
 
-
-# ============================================================
-# 5. PREPARE DATA
-# ============================================================
-
-def prepare_data(df):
-
-    df = df.copy()
+    df["cycle_percent"] = pd.to_numeric(
+        df["cycle_percent"],
+        errors="coerce"
+    )
 
     # --------------------------------------------------------
-    # rep_id restarts for each participant.
+    # Unique repetition.
     #
-    # participant + rep_id therefore defines one unique
-    # squat repetition.
+    # rep_id restarts for every participant.
     # --------------------------------------------------------
 
     df["unique_rep"] = (
@@ -226,61 +179,83 @@ def prepare_data(df):
         + df["rep_id"].astype(str)
     )
 
-    df["cycle_percent"] = pd.to_numeric(
-        df["cycle_percent"],
-        errors="coerce"
-    )
-
     return df
 
 
 # ============================================================
-# 6. STATISTICS FOR ONE SIGNAL
+# VERIFY COLUMNS
 # ============================================================
 
-def calculate_statistics(
+def check_column(
     df,
-    signal_column
+    column
 ):
 
-    if signal_column not in df.columns:
+    if column not in df.columns:
 
-        return pd.DataFrame()
+        print(
+            f"[WARNING] Column not found: {column}"
+        )
 
-    data = df[
+        return False
+
+    return True
+
+
+# ============================================================
+# CALCULATE STATISTICS
+# ============================================================
+
+def get_statistics(
+    df,
+    column
+):
+
+    if not check_column(
+        df,
+        column
+    ):
+
+        return None
+
+    temp = df[
         [
             "unique_rep",
             "cycle_percent",
-            signal_column,
+            column,
         ]
     ].copy()
 
-    data[signal_column] = pd.to_numeric(
-        data[signal_column],
+    temp[column] = pd.to_numeric(
+        temp[column],
         errors="coerce"
     )
 
-    data = data.dropna(
+    temp = temp.dropna(
         subset=[
             "cycle_percent",
-            signal_column,
+            column,
         ]
     )
 
-    if data.empty:
+    if temp.empty:
 
-        return pd.DataFrame()
+        print(
+            f"[WARNING] No usable values for {column}"
+        )
+
+        return None
 
     grouped = (
-        data
+        temp
         .groupby(
             "cycle_percent"
-        )[signal_column]
+        )[column]
     )
 
-    result = pd.DataFrame({
+    stats = pd.DataFrame({
 
-        "cycle_percent":
+        "cycle":
             grouped.mean().index,
 
         "mean":
@@ -295,253 +270,38 @@ def calculate_statistics(
             grouped.count().values,
     })
 
-    result["upper"] = (
-        result["mean"]
+    stats["upper"] = (
+        stats["mean"]
         +
-        result["std"]
+        stats["std"]
     )
 
-    result["lower"] = (
-        result["mean"]
+    stats["lower"] = (
+        stats["mean"]
         -
-        result["std"]
+        stats["std"]
     )
 
-    return result
+    return stats
 
 
 # ============================================================
-# 7. UNIQUE REPETITIONS
+# SAVE FIGURE
 # ============================================================
 
-def get_repetitions(
-    df,
-    signal_column
-):
-
-    if signal_column not in df.columns:
-
-        return []
-
-    valid = df[
-        [
-            "unique_rep",
-            "cycle_percent",
-            signal_column,
-        ]
-    ].copy()
-
-    valid[signal_column] = pd.to_numeric(
-        valid[signal_column],
-        errors="coerce"
-    )
-
-    valid = valid.dropna(
-        subset=[
-            "cycle_percent",
-            signal_column,
-        ]
-    )
-
-    return (
-        valid[
-            "unique_rep"
-        ]
-        .drop_duplicates()
-        .tolist()
-    )
-
-
-# ============================================================
-# 8. BASE FIGURE STYLE
-# ============================================================
-
-def prepare_axis(
-    ax,
-    title,
-    ylabel
-):
-
-    ax.set_title(
-        title,
-        fontsize=14,
-        pad=12
-    )
-
-    ax.set_xlabel(
-        "Normalized Squat Cycle (%)",
-        fontsize=12
-    )
-
-    ax.set_ylabel(
-        ylabel,
-        fontsize=12
-    )
-
-    ax.set_xlim(
-        CYCLE_MIN,
-        CYCLE_MAX
-    )
-
-    ax.grid(
-        True,
-        alpha=0.22,
-        linewidth=0.8
-    )
-
-    ax.tick_params(
-        labelsize=10
-    )
-
-
-# ============================================================
-# 9. SIDE VIEW — SINGLE SIGNAL
-# ============================================================
-
-def plot_side_signal(
-    df,
-    signal_column,
-    title,
+def save_figure(
+    fig,
+    output_directory,
     filename
 ):
 
-    statistics = calculate_statistics(
-        df,
-        signal_column
-    )
-
-    if statistics.empty:
-
-        print(
-            f"[WARNING] No data for {signal_column}"
-        )
-
-        return
-
-    fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
-    )
-
-    # --------------------------------------------------------
-    # Individual repetitions
-    # --------------------------------------------------------
-
-    repetitions = get_repetitions(
-        df,
-        signal_column
-    )
-
-    for rep in repetitions:
-
-        rep_df = df[
-            df["unique_rep"]
-            == rep
-        ].copy()
-
-        rep_df[signal_column] = pd.to_numeric(
-            rep_df[signal_column],
-            errors="coerce"
-        )
-
-        rep_df = rep_df.dropna(
-            subset=[
-                "cycle_percent",
-                signal_column,
-            ]
-        )
-
-        ax.plot(
-            rep_df[
-                "cycle_percent"
-            ],
-            rep_df[
-                signal_column
-            ],
-            linewidth=0.7,
-            alpha=0.15
-        )
-
-    # --------------------------------------------------------
-    # Mean
-    # --------------------------------------------------------
-
-    ax.plot(
-        statistics[
-            "cycle_percent"
-        ],
-        statistics[
-            "mean"
-        ],
-        linewidth=2.7,
-        label="Mean"
-    )
-
-    # --------------------------------------------------------
-    # ±1 SD
-    # --------------------------------------------------------
-
-    ax.fill_between(
-
-        statistics[
-            "cycle_percent"
-        ],
-
-        statistics[
-            "lower"
-        ],
-
-        statistics[
-            "upper"
-        ],
-
-        alpha=0.18,
-
-        label="±1 SD"
-    )
-
-    # --------------------------------------------------------
-    # Bottom marker
-    # --------------------------------------------------------
-
-    ax.axvline(
-        50,
-        linestyle="--",
-        linewidth=1.0,
-        alpha=0.65
-    )
-
-    ax.text(
-        50,
-        0.97,
-        "Approx. bottom",
-        transform=ax.get_xaxis_transform(),
-        ha="center",
-        va="top",
-        fontsize=9
-    )
-
-    prepare_axis(
-        ax,
-        title,
-        "Angle (degrees)"
-    )
-
-    ax.legend(
-        frameon=False
-    )
-
-    fig.tight_layout()
-
     png_path = (
-        ANGLE_OUTPUT_DIR
+        output_directory
         / f"{filename}.png"
     )
 
     pdf_path = (
-        ANGLE_OUTPUT_DIR
+        output_directory
         / f"{filename}.pdf"
     )
 
@@ -556,131 +316,256 @@ def plot_side_signal(
         bbox_inches="tight"
     )
 
-    plt.close(
-        fig
-    )
+    plt.close(fig)
 
     print(
         f"[DONE] {png_path.name}"
     )
 
+    print(
+        f"[DONE] {pdf_path.name}"
+    )
+
 
 # ============================================================
-# 10. FRONT VIEW — LEFT VS RIGHT
+# COMMON AXIS
+# ============================================================
+
+def configure_axis(
+    ax,
+    title,
+    ylabel
+):
+
+    ax.set_title(
+        title,
+        fontsize=15,
+        fontweight="bold",
+        pad=12
+    )
+
+    ax.set_xlabel(
+        "Normalized Squat Cycle (%)",
+        fontsize=12
+    )
+
+    ax.set_ylabel(
+        ylabel,
+        fontsize=12
+    )
+
+    ax.set_xlim(
+        0,
+        100
+    )
+
+    ax.grid(
+        True,
+        alpha=0.22
+    )
+
+    # --------------------------------------------------------
+    # Squat bottom.
+    # --------------------------------------------------------
+
+    ax.axvline(
+        BOTTOM_PERCENT,
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.65
+    )
+
+    ax.text(
+        BOTTOM_PERCENT,
+        0.97,
+        "Approx. squat bottom",
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=9
+    )
+
+
+# ============================================================
+# SIDE VIEW
+# SINGLE JOINT TRAJECTORY
+# ============================================================
+
+def plot_side_joint(
+    df,
+    column,
+    title,
+    filename
+):
+
+    stats = get_statistics(
+        df,
+        column
+    )
+
+    if stats is None:
+
+        return
+
+    fig, ax = plt.subplots(
+        figsize=FIGSIZE
+    )
+
+    # --------------------------------------------------------
+    # Individual repetition curves.
+    # --------------------------------------------------------
+
+    repetitions = (
+        df[
+            "unique_rep"
+        ]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    for rep in repetitions:
+
+        rep_df = df[
+            df["unique_rep"]
+            == rep
+        ].copy()
+
+        rep_df[column] = pd.to_numeric(
+            rep_df[column],
+            errors="coerce"
+        )
+
+        rep_df = rep_df.dropna(
+            subset=[
+                "cycle_percent",
+                column,
+            ]
+        )
+
+        ax.plot(
+            rep_df["cycle_percent"],
+            rep_df[column],
+            linewidth=0.6,
+            alpha=0.10
+        )
+
+    # --------------------------------------------------------
+    # Mean trajectory.
+    # --------------------------------------------------------
+
+    ax.plot(
+        stats["cycle"],
+        stats["mean"],
+        linewidth=3.0,
+        label="Mean"
+    )
+
+    # --------------------------------------------------------
+    # Standard deviation.
+    # --------------------------------------------------------
+
+    ax.fill_between(
+        stats["cycle"],
+        stats["lower"],
+        stats["upper"],
+        alpha=0.18,
+        label="±1 SD"
+    )
+
+    configure_axis(
+        ax,
+        title,
+        "Angle (degrees)"
+    )
+
+    ax.legend(
+        frameon=False
+    )
+
+    fig.tight_layout()
+
+    save_figure(
+        fig,
+        ANGLE_GRAPHS,
+        filename
+    )
+
+
+# ============================================================
+# FRONT VIEW
+# LEFT VS RIGHT
 # ============================================================
 
 def plot_front_left_right(
     df,
     left_column,
     right_column,
-    joint_name
+    joint_name,
+    filename
 ):
 
-    left_stats = calculate_statistics(
+    left_stats = get_statistics(
         df,
         left_column
     )
 
-    right_stats = calculate_statistics(
+    right_stats = get_statistics(
         df,
         right_column
     )
 
-    if left_stats.empty or right_stats.empty:
+    if left_stats is None:
 
-        print(
-            f"[WARNING] Missing front-view data "
-            f"for {joint_name}"
-        )
+        return
+
+    if right_stats is None:
 
         return
 
     fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
+        figsize=FIGSIZE
     )
 
     # --------------------------------------------------------
-    # Left
+    # LEFT
     # --------------------------------------------------------
 
     ax.plot(
-        left_stats[
-            "cycle_percent"
-        ],
-        left_stats[
-            "mean"
-        ],
-        linewidth=2.5,
+        left_stats["cycle"],
+        left_stats["mean"],
+        linewidth=3.0,
         label="Left"
     )
 
     ax.fill_between(
-
-        left_stats[
-            "cycle_percent"
-        ],
-
-        left_stats[
-            "lower"
-        ],
-
-        left_stats[
-            "upper"
-        ],
-
+        left_stats["cycle"],
+        left_stats["lower"],
+        left_stats["upper"],
         alpha=0.12
     )
 
     # --------------------------------------------------------
-    # Right
+    # RIGHT
     # --------------------------------------------------------
 
     ax.plot(
-        right_stats[
-            "cycle_percent"
-        ],
-        right_stats[
-            "mean"
-        ],
-        linewidth=2.5,
+        right_stats["cycle"],
+        right_stats["mean"],
+        linewidth=3.0,
         linestyle="--",
         label="Right"
     )
 
     ax.fill_between(
-
-        right_stats[
-            "cycle_percent"
-        ],
-
-        right_stats[
-            "lower"
-        ],
-
-        right_stats[
-            "upper"
-        ],
-
+        right_stats["cycle"],
+        right_stats["lower"],
+        right_stats["upper"],
         alpha=0.12
     )
 
-    # --------------------------------------------------------
-    # Bottom
-    # --------------------------------------------------------
-
-    ax.axvline(
-        50,
-        linestyle=":",
-        linewidth=1.0,
-        alpha=0.65
-    )
-
-    prepare_axis(
+    configure_axis(
         ax,
-        f"Front View — {joint_name} Left–Right Trajectory",
+        f"Front View — {joint_name} Left vs Right",
         "Projected angle (degrees)"
     )
 
@@ -690,47 +575,41 @@ def plot_front_left_right(
 
     fig.tight_layout()
 
-    png_path = (
-        ANGLE_OUTPUT_DIR
-        / f"front_{joint_name.lower()}_left_right.png"
-    )
-
-    pdf_path = (
-        ANGLE_OUTPUT_DIR
-        / f"front_{joint_name.lower()}_left_right.pdf"
-    )
-
-    fig.savefig(
-        png_path,
-        dpi=DPI,
-        bbox_inches="tight"
-    )
-
-    fig.savefig(
-        pdf_path,
-        bbox_inches="tight"
-    )
-
-    plt.close(
-        fig
-    )
-
-    print(
-        f"[DONE] {png_path.name}"
+    save_figure(
+        fig,
+        ANGLE_GRAPHS,
+        filename
     )
 
 
 # ============================================================
-# 11. FRONT VIEW — ASYMMETRY
+# FRONT VIEW
+# ASYMMETRY
 # ============================================================
 
-def calculate_asymmetry(
+def plot_asymmetry(
     df,
     left_column,
-    right_column
+    right_column,
+    joint_name,
+    filename
 ):
 
-    data = df[
+    if not check_column(
+        df,
+        left_column
+    ):
+
+        return
+
+    if not check_column(
+        df,
+        right_column
+    ):
+
+        return
+
+    temp = df[
         [
             "unique_rep",
             "cycle_percent",
@@ -739,66 +618,54 @@ def calculate_asymmetry(
         ]
     ].copy()
 
-    data[left_column] = pd.to_numeric(
-        data[left_column],
+    temp[left_column] = pd.to_numeric(
+        temp[left_column],
         errors="coerce"
     )
 
-    data[right_column] = pd.to_numeric(
-        data[right_column],
+    temp[right_column] = pd.to_numeric(
+        temp[right_column],
         errors="coerce"
     )
 
-    data["asymmetry_deg"] = (
-        data[left_column]
+    # --------------------------------------------------------
+    # Absolute left-right difference.
+    #
+    # This is a descriptive asymmetry measure.
+    # It is NOT a clinical injury threshold.
+    # --------------------------------------------------------
+
+    temp["asymmetry"] = (
+        temp[left_column]
         -
-        data[right_column]
+        temp[right_column]
     ).abs()
 
-    return data
-
-
-def plot_front_asymmetry(
-    df,
-    left_column,
-    right_column,
-    joint_name
-):
-
-    data = calculate_asymmetry(
-        df,
-        left_column,
-        right_column
-    )
-
-    data = data.dropna(
+    temp = temp.dropna(
         subset=[
             "cycle_percent",
-            "asymmetry_deg",
+            "asymmetry",
         ]
     )
 
-    if data.empty:
+    if temp.empty:
 
         print(
-            f"[WARNING] No asymmetry data "
-            f"for {joint_name}"
+            f"[WARNING] No asymmetry data for {joint_name}"
         )
 
         return
 
     grouped = (
-        data
+        temp
         .groupby(
             "cycle_percent"
-        )[
-            "asymmetry_deg"
-        ]
+        )["asymmetry"]
     )
 
-    statistics = pd.DataFrame({
+    stats = pd.DataFrame({
 
-        "cycle_percent":
+        "cycle":
             grouped.mean().index,
 
         "mean":
@@ -810,31 +677,29 @@ def plot_front_asymmetry(
             ).fillna(0).values,
     })
 
-    statistics["upper"] = (
-        statistics["mean"]
+    stats["upper"] = (
+        stats["mean"]
         +
-        statistics["std"]
+        stats["std"]
     )
 
-    statistics["lower"] = (
-        statistics["mean"]
+    stats["lower"] = np.maximum(
+        stats["mean"]
         -
-        statistics["std"]
+        stats["std"],
+        0
     )
 
     fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
+        figsize=FIGSIZE
     )
 
     # --------------------------------------------------------
-    # Individual repetition asymmetry curves
+    # Individual asymmetry curves.
     # --------------------------------------------------------
 
     repetitions = (
-        data[
+        temp[
             "unique_rep"
         ]
         .drop_duplicates()
@@ -843,71 +708,41 @@ def plot_front_asymmetry(
 
     for rep in repetitions:
 
-        rep_df = data[
-            data["unique_rep"]
+        rep_df = temp[
+            temp["unique_rep"]
             == rep
         ]
 
         ax.plot(
-            rep_df[
-                "cycle_percent"
-            ],
-            rep_df[
-                "asymmetry_deg"
-            ],
-            linewidth=0.7,
-            alpha=0.14
+            rep_df["cycle_percent"],
+            rep_df["asymmetry"],
+            linewidth=0.6,
+            alpha=0.10
         )
 
     # --------------------------------------------------------
-    # Mean asymmetry
+    # Mean asymmetry.
     # --------------------------------------------------------
 
     ax.plot(
-        statistics[
-            "cycle_percent"
-        ],
-        statistics[
-            "mean"
-        ],
-        linewidth=2.7,
+        stats["cycle"],
+        stats["mean"],
+        linewidth=3.0,
         label="Mean absolute difference"
     )
 
-    # --------------------------------------------------------
-    # SD
-    # --------------------------------------------------------
-
     ax.fill_between(
-
-        statistics[
-            "cycle_percent"
-        ],
-
-        statistics[
-            "lower"
-        ],
-
-        statistics[
-            "upper"
-        ],
-
+        stats["cycle"],
+        stats["lower"],
+        stats["upper"],
         alpha=0.18,
-
         label="±1 SD"
     )
 
-    ax.axvline(
-        50,
-        linestyle=":",
-        linewidth=1.0,
-        alpha=0.65
-    )
-
-    prepare_axis(
+    configure_axis(
         ax,
-        f"Front View — {joint_name} Left–Right Asymmetry",
-        "Absolute angle difference (degrees)"
+        f"Front View — {joint_name} Asymmetry",
+        "Absolute left-right angle difference (degrees)"
     )
 
     ax.legend(
@@ -916,45 +751,23 @@ def plot_front_asymmetry(
 
     fig.tight_layout()
 
-    png_path = (
-        ANGLE_OUTPUT_DIR
-        / f"front_{joint_name.lower()}_asymmetry.png"
-    )
-
-    pdf_path = (
-        ANGLE_OUTPUT_DIR
-        / f"front_{joint_name.lower()}_asymmetry.pdf"
-    )
-
-    fig.savefig(
-        png_path,
-        dpi=DPI,
-        bbox_inches="tight"
-    )
-
-    fig.savefig(
-        pdf_path,
-        bbox_inches="tight"
-    )
-
-    plt.close(
-        fig
-    )
-
-    print(
-        f"[DONE] {png_path.name}"
+    save_figure(
+        fig,
+        ANGLE_GRAPHS,
+        filename
     )
 
 
 # ============================================================
-# 12. SIDE VIEW — LOWER LIMB COMPARISON
+# SIDE VIEW
+# LOWER LIMB OVERVIEW
 # ============================================================
 
 def plot_side_lower_limb(
     df
 ):
 
-    signals = [
+    columns = [
         (
             "left_knee_angle_deg",
             "Knee"
@@ -972,148 +785,40 @@ def plot_side_lower_limb(
     ]
 
     fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
+        figsize=FIGSIZE
     )
 
-    for column, label in signals:
+    plotted = 0
 
-        if column not in df.columns:
+    for column, label in columns:
 
-            continue
-
-        statistics = calculate_statistics(
+        stats = get_statistics(
             df,
             column
         )
 
-        if statistics.empty:
+        if stats is None:
 
             continue
 
         ax.plot(
-            statistics[
-                "cycle_percent"
-            ],
-            statistics[
-                "mean"
-            ],
-            linewidth=2.2,
+            stats["cycle"],
+            stats["mean"],
+            linewidth=2.5,
             label=label
         )
 
-    ax.axvline(
-        50,
-        linestyle=":",
-        linewidth=1.0,
-        alpha=0.65
-    )
+        plotted += 1
 
-    prepare_axis(
-        ax,
-        "Side View — Lower-Limb Joint-Angle Trajectories",
-        "Angle (degrees)"
-    )
+    if plotted == 0:
 
-    ax.legend(
-        frameon=False
-    )
-
-    fig.tight_layout()
-
-    png_path = (
-        COMPARISON_OUTPUT_DIR
-        / "side_lower_limb_trajectories.png"
-    )
-
-    pdf_path = (
-        COMPARISON_OUTPUT_DIR
-        / "side_lower_limb_trajectories.pdf"
-    )
-
-    fig.savefig(
-        png_path,
-        dpi=DPI,
-        bbox_inches="tight"
-    )
-
-    fig.savefig(
-        pdf_path,
-        bbox_inches="tight"
-    )
-
-    plt.close(
-        fig
-    )
-
-    print(
-        f"[DONE] {png_path.name}"
-    )
-
-
-# ============================================================
-# 13. SIDE VIEW — KNEE AND HIP
-# ============================================================
-
-def plot_side_knee_hip(
-    df
-):
-
-    knee = calculate_statistics(
-        df,
-        "left_knee_angle_deg"
-    )
-
-    hip = calculate_statistics(
-        df,
-        "left_hip_angle_deg"
-    )
-
-    if knee.empty or hip.empty:
+        plt.close(fig)
 
         return
 
-    fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
-    )
-
-    ax.plot(
-        knee[
-            "cycle_percent"
-        ],
-        knee[
-            "mean"
-        ],
-        linewidth=2.5,
-        label="Knee"
-    )
-
-    ax.plot(
-        hip[
-            "cycle_percent"
-        ],
-        hip[
-            "mean"
-        ],
-        linewidth=2.5,
-        label="Hip"
-    )
-
-    ax.axvline(
-        50,
-        linestyle=":",
-        linewidth=1.0,
-        alpha=0.65
-    )
-
-    prepare_axis(
+    configure_axis(
         ax,
-        "Side View — Knee and Hip Kinematics",
+        "Side View — Lower-Limb Joint Kinematics",
         "Angle (degrees)"
     )
 
@@ -1123,38 +828,16 @@ def plot_side_knee_hip(
 
     fig.tight_layout()
 
-    png_path = (
-        COMPARISON_OUTPUT_DIR
-        / "side_knee_hip_trajectories.png"
-    )
-
-    pdf_path = (
-        COMPARISON_OUTPUT_DIR
-        / "side_knee_hip_trajectories.pdf"
-    )
-
-    fig.savefig(
-        png_path,
-        dpi=DPI,
-        bbox_inches="tight"
-    )
-
-    fig.savefig(
-        pdf_path,
-        bbox_inches="tight"
-    )
-
-    plt.close(
-        fig
-    )
-
-    print(
-        f"[DONE] {png_path.name}"
+    save_figure(
+        fig,
+        COMPARISON_GRAPHS,
+        "side_lower_limb_trajectories"
     )
 
 
 # ============================================================
-# 14. FRONT VIEW — ASYMMETRY OVERVIEW
+# FRONT VIEW
+# ASYMMETRY OVERVIEW
 # ============================================================
 
 def plot_front_asymmetry_overview(
@@ -1183,59 +866,84 @@ def plot_front_asymmetry_overview(
     ]
 
     fig, ax = plt.subplots(
-        figsize=(
-            FIG_WIDTH,
-            FIG_HEIGHT
-        )
+        figsize=FIGSIZE
     )
+
+    plotted = 0
 
     for left, right, label in joints:
 
-        data = calculate_asymmetry(
+        if not check_column(
             df,
-            left,
-            right
-        )
-
-        data = data.dropna(
-            subset=[
-                "cycle_percent",
-                "asymmetry_deg",
-            ]
-        )
-
-        if data.empty:
+            left
+        ):
 
             continue
 
-        grouped = (
-            data
+        if not check_column(
+            df,
+            right
+        ):
+
+            continue
+
+        temp = df[
+            [
+                "cycle_percent",
+                left,
+                right,
+            ]
+        ].copy()
+
+        temp[left] = pd.to_numeric(
+            temp[left],
+            errors="coerce"
+        )
+
+        temp[right] = pd.to_numeric(
+            temp[right],
+            errors="coerce"
+        )
+
+        temp["asymmetry"] = (
+            temp[left]
+            -
+            temp[right]
+        ).abs()
+
+        temp = temp.dropna()
+
+        if temp.empty:
+
+            continue
+
+        mean_curve = (
+            temp
             .groupby(
                 "cycle_percent"
-            )[
-                "asymmetry_deg"
-            ]
+            )["asymmetry"]
             .mean()
         )
 
         ax.plot(
-            grouped.index,
-            grouped.values,
-            linewidth=2.2,
+            mean_curve.index,
+            mean_curve.values,
+            linewidth=2.5,
             label=label
         )
 
-    ax.axvline(
-        50,
-        linestyle=":",
-        linewidth=1.0,
-        alpha=0.65
-    )
+        plotted += 1
 
-    prepare_axis(
+    if plotted == 0:
+
+        plt.close(fig)
+
+        return
+
+    configure_axis(
         ax,
-        "Front View — Left–Right Asymmetry Across Squat Cycle",
-        "Absolute angle difference (degrees)"
+        "Front View — Joint Asymmetry Across Squat Cycle",
+        "Absolute left-right angle difference (degrees)"
     )
 
     ax.legend(
@@ -1244,57 +952,30 @@ def plot_front_asymmetry_overview(
 
     fig.tight_layout()
 
-    png_path = (
-        COMPARISON_OUTPUT_DIR
-        / "front_asymmetry_overview.png"
-    )
-
-    pdf_path = (
-        COMPARISON_OUTPUT_DIR
-        / "front_asymmetry_overview.pdf"
-    )
-
-    fig.savefig(
-        png_path,
-        dpi=DPI,
-        bbox_inches="tight"
-    )
-
-    fig.savefig(
-        pdf_path,
-        bbox_inches="tight"
-    )
-
-    plt.close(
-        fig
-    )
-
-    print(
-        f"[DONE] {png_path.name}"
+    save_figure(
+        fig,
+        COMPARISON_GRAPHS,
+        "front_asymmetry_overview"
     )
 
 
 # ============================================================
-# 15. PRINT DATASET SUMMARY
+# DATASET SUMMARY
 # ============================================================
 
 def print_summary(
-    front_df,
-    side_df
+    front,
+    side
 ):
 
     print()
     print("=" * 70)
-
-    print(
-        "DATASET SUMMARY"
-    )
-
+    print("DATASET SUMMARY")
     print("=" * 70)
 
     for name, df in [
-        ("Front", front_df),
-        ("Side", side_df),
+        ("FRONT", front),
+        ("SIDE", side),
     ]:
 
         participants = (
@@ -1311,189 +992,220 @@ def print_summary(
             .nunique()
         )
 
-        points = len(
-            df
-        )
+        rows = len(df)
 
         print()
         print(
-            f"{name} view"
+            f"{name} VIEW"
         )
 
         print(
-            f"Participants: "
-            f"{participants}"
+            f"Participants : {participants}"
         )
 
         print(
-            f"Repetitions: "
-            f"{repetitions}"
+            f"Repetitions  : {repetitions}"
         )
 
         print(
-            f"Normalized points: "
-            f"{points}"
+            f"Rows         : {rows}"
+        )
+
+        print(
+            f"Points/rep   : {rows // repetitions}"
         )
 
 
 # ============================================================
-# 16. MAIN
+# COLUMN REPORT
+# ============================================================
+
+def print_column_report(
+    front,
+    side
+):
+
+    print()
+    print("=" * 70)
+    print("AVAILABLE ANGLE COLUMNS")
+    print("=" * 70)
+
+    print()
+    print("FRONT:")
+
+    for column in front.columns:
+
+        if "angle" in column.lower():
+
+            print(
+                f"  {column}"
+            )
+
+    print()
+    print("SIDE:")
+
+    for column in side.columns:
+
+        if "angle" in column.lower():
+
+            print(
+                f"  {column}"
+            )
+
+
+# ============================================================
+# MAIN
 # ============================================================
 
 def main():
 
     print()
     print("=" * 70)
-
     print(
-        "SQUAT DATASET — REVISED PUBLICATION FIGURES"
+        "SQUAT DATASET — PUBLICATION FIGURES"
     )
-
     print("=" * 70)
 
     # --------------------------------------------------------
     # Load
     # --------------------------------------------------------
 
-    front_df = load_view(
+    front = load_dataset(
         "front"
     )
 
-    side_df = load_view(
+    side = load_dataset(
         "side"
     )
 
     # --------------------------------------------------------
-    # Prepare
+    # Summary
     # --------------------------------------------------------
 
-    front_df = prepare_data(
-        front_df
-    )
-
-    side_df = prepare_data(
-        side_df
-    )
-
     print_summary(
-        front_df,
-        side_df
+        front,
+        side
+    )
+
+    print_column_report(
+        front,
+        side
     )
 
     # ========================================================
-    # SIDE VIEW FIGURES
+    # SIDE VIEW
     # ========================================================
 
     print()
     print("=" * 70)
-
     print(
         "SIDE VIEW — SAGITTAL KINEMATICS"
     )
-
     print("=" * 70)
 
-    plot_side_signal(
-        side_df,
+    plot_side_joint(
+        side,
         "left_knee_angle_deg",
-        "Side View — Knee Flexion/Extension Trajectory",
+        "Side View — Knee Angle Trajectory",
         "side_knee_trajectory"
     )
 
-    plot_side_signal(
-        side_df,
+    plot_side_joint(
+        side,
         "left_hip_angle_deg",
-        "Side View — Hip Flexion/Extension Trajectory",
+        "Side View — Hip Angle Trajectory",
         "side_hip_trajectory"
     )
 
-    plot_side_signal(
-        side_df,
+    plot_side_joint(
+        side,
         "left_ankle_angle_deg",
         "Side View — Ankle Angle Trajectory",
         "side_ankle_trajectory"
     )
 
-    plot_side_signal(
-        side_df,
+    plot_side_joint(
+        side,
         "trunk_angle_deg",
         "Side View — Trunk Angle Trajectory",
         "side_trunk_trajectory"
     )
 
     # ========================================================
-    # FRONT VIEW FIGURES
+    # FRONT VIEW — LEFT VS RIGHT
     # ========================================================
 
     print()
     print("=" * 70)
-
     print(
-        "FRONT VIEW — LEFT/RIGHT MOVEMENT"
+        "FRONT VIEW — LEFT VS RIGHT"
     )
-
     print("=" * 70)
 
     plot_front_left_right(
-        front_df,
+        front,
         "left_knee_angle_deg",
         "right_knee_angle_deg",
-        "Knee"
+        "Knee",
+        "front_knee_left_right"
     )
 
     plot_front_left_right(
-        front_df,
+        front,
         "left_hip_angle_deg",
         "right_hip_angle_deg",
-        "Hip"
+        "Hip",
+        "front_hip_left_right"
     )
 
     plot_front_left_right(
-        front_df,
+        front,
         "left_ankle_angle_deg",
         "right_ankle_angle_deg",
-        "Ankle"
+        "Ankle",
+        "front_ankle_left_right"
     )
 
-    plot_side_signal(
-        front_df,
+    plot_side_joint(
+        front,
         "trunk_angle_deg",
         "Front View — Trunk Angle Trajectory",
         "front_trunk_trajectory"
     )
 
     # ========================================================
-    # FRONT VIEW ASYMMETRY
+    # FRONT VIEW — ASYMMETRY
     # ========================================================
 
     print()
     print("=" * 70)
-
     print(
-        "FRONT VIEW — ASYMMETRY"
+        "FRONT VIEW — LEFT-RIGHT ASYMMETRY"
     )
-
     print("=" * 70)
 
-    plot_front_asymmetry(
-        front_df,
+    plot_asymmetry(
+        front,
         "left_knee_angle_deg",
         "right_knee_angle_deg",
-        "Knee"
+        "Knee",
+        "front_knee_asymmetry"
     )
 
-    plot_front_asymmetry(
-        front_df,
+    plot_asymmetry(
+        front,
         "left_hip_angle_deg",
         "right_hip_angle_deg",
-        "Hip"
+        "Hip",
+        "front_hip_asymmetry"
     )
 
-    plot_front_asymmetry(
-        front_df,
+    plot_asymmetry(
+        front,
         "left_ankle_angle_deg",
         "right_ankle_angle_deg",
-        "Ankle"
+        "Ankle",
+        "front_ankle_asymmetry"
     )
 
     # ========================================================
@@ -1502,67 +1214,59 @@ def main():
 
     print()
     print("=" * 70)
-
     print(
         "COMPARISON FIGURES"
     )
-
     print("=" * 70)
 
     plot_side_lower_limb(
-        side_df
-    )
-
-    plot_side_knee_hip(
-        side_df
+        side
     )
 
     plot_front_asymmetry_overview(
-        front_df
+        front
     )
 
     # ========================================================
-    # FINISH
+    # FINAL
     # ========================================================
 
     print()
     print("=" * 70)
-
     print(
-        "REVISED FIGURE GENERATION COMPLETE"
+        "FIGURE GENERATION COMPLETE"
     )
-
     print("=" * 70)
 
     print()
     print(
-        "Angle graphs:"
+        "ANGLE GRAPHS:"
     )
 
     print(
-        ANGLE_OUTPUT_DIR
-    )
-
-    print()
-    print(
-        "Comparison graphs:"
-    )
-
-    print(
-        COMPARISON_OUTPUT_DIR
+        ANGLE_GRAPHS
     )
 
     print()
     print(
-        "Scientific interpretation:"
+        "COMPARISON GRAPHS:"
     )
 
     print(
-        "Side view = sagittal-plane squat kinematics"
+        COMPARISON_GRAPHS
+    )
+
+    print()
+    print(
+        "Interpretation:"
     )
 
     print(
-        "Front view = left-right projected movement/asymmetry"
+        "Side view -> sagittal-plane squat kinematics"
+    )
+
+    print(
+        "Front view -> projected left-right movement and asymmetry"
     )
 
     print(
@@ -1573,7 +1277,7 @@ def main():
 
 
 # ============================================================
-# PROGRAM ENTRY
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
