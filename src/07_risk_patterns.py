@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================
-# PATHS
+# SQUAT DATASET — RISK-RELATED MOVEMENT INDICATORS
+# FINAL PUBLICATION VERSION
 # ============================================================
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,17 +20,27 @@ GRAPH_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# LOAD FEATURE DATA
+# CLEAN OLD RISK OUTPUTS
+# ============================================================
+
+print("=" * 70)
+print("CLEANING OLD RISK OUTPUTS")
+print("=" * 70)
+
+for file in GRAPH_ROOT.glob("*"):
+    if file.is_file():
+        file.unlink()
+
+print("[DONE] Old risk graphs removed")
+
+
+# ============================================================
+# LOAD FEATURES
 # ============================================================
 
 def load_features(view):
 
     path = FEATURE_ROOT / f"{view}_features.csv"
-
-    print()
-    print("=" * 70)
-    print(f"LOADING {view.upper()} FEATURES")
-    print("=" * 70)
 
     if not path.exists():
         raise FileNotFoundError(
@@ -38,6 +49,11 @@ def load_features(view):
 
     df = pd.read_csv(path)
 
+    print()
+    print("=" * 70)
+    print(f"LOADING {view.upper()} FEATURES")
+    print("=" * 70)
+
     print(f"Rows: {len(df)}")
     print(f"Columns: {len(df.columns)}")
 
@@ -45,10 +61,10 @@ def load_features(view):
 
 
 # ============================================================
-# NUMERIC HELPER
+# FORCE NUMERIC
 # ============================================================
 
-def num(df, column):
+def numeric(df, column):
 
     return pd.to_numeric(
         df[column],
@@ -57,157 +73,171 @@ def num(df, column):
 
 
 # ============================================================
-# CALCULATE RISK-RELATED MOVEMENT INDICATORS
+# FRONT VIEW INDICATORS
 # ============================================================
 
-def calculate_indicators(df):
+def calculate_front_indicators(df):
 
     result = df.copy()
 
     # --------------------------------------------------------
-    # KNEE LEFT-RIGHT ASYMMETRY
+    # LEFT-RIGHT KNEE ASYMMETRY
     # --------------------------------------------------------
 
     result["knee_asymmetry_deg"] = (
-        num(
+        numeric(
             result,
             "left_knee_mean_deg"
         )
         -
-        num(
+        numeric(
             result,
             "right_knee_mean_deg"
         )
     ).abs()
 
     # --------------------------------------------------------
-    # HIP LEFT-RIGHT ASYMMETRY
+    # LEFT-RIGHT HIP ASYMMETRY
     # --------------------------------------------------------
 
     result["hip_asymmetry_deg"] = (
-        num(
+        numeric(
             result,
             "left_hip_mean_deg"
         )
         -
-        num(
+        numeric(
             result,
             "right_hip_mean_deg"
         )
     ).abs()
 
     # --------------------------------------------------------
-    # ANKLE LEFT-RIGHT ASYMMETRY
+    # LEFT-RIGHT ANKLE ASYMMETRY
     # --------------------------------------------------------
 
     result["ankle_asymmetry_deg"] = (
-        num(
+        numeric(
             result,
             "left_ankle_mean_deg"
         )
         -
-        num(
+        numeric(
             result,
             "right_ankle_mean_deg"
         )
     ).abs()
 
-    # --------------------------------------------------------
-    # TRUNK EXCURSION
-    # --------------------------------------------------------
+    return result
 
-    result["trunk_excursion_deg"] = num(
+
+# ============================================================
+# SIDE VIEW INDICATOR
+# ============================================================
+
+def calculate_side_indicators(df):
+
+    result = df.copy()
+
+    # Side view is treated as sagittal-plane movement.
+    # Therefore we retain trunk excursion rather than
+    # interpreting left/right asymmetry from this view.
+
+    result["trunk_excursion_deg"] = numeric(
         result,
         "trunk_range_deg"
     )
-
-    # --------------------------------------------------------
-    # MAXIMUM JOINT ASYMMETRY
-    # --------------------------------------------------------
-
-    result["maximum_joint_asymmetry_deg"] = result[
-        [
-            "knee_asymmetry_deg",
-            "hip_asymmetry_deg",
-            "ankle_asymmetry_deg"
-        ]
-    ].max(axis=1)
 
     return result
 
 
 # ============================================================
-# DATASET-DERIVED UPPER-5% FLAGS
+# CALCULATE DATASET-DERIVED 95TH PERCENTILE
 # ============================================================
 
-def add_flags(df):
+def percentile_95(series):
 
-    indicators = [
-        "knee_asymmetry_deg",
-        "hip_asymmetry_deg",
-        "ankle_asymmetry_deg",
-        "trunk_excursion_deg"
-    ]
+    values = pd.to_numeric(
+        series,
+        errors="coerce"
+    ).dropna()
 
-    thresholds = {}
+    if len(values) == 0:
+        return np.nan
 
-    for column in indicators:
+    return float(
+        np.percentile(
+            values,
+            95
+        )
+    )
 
-        values = (
+
+# ============================================================
+# ADD UPPER 5% FLAGS
+# ============================================================
+
+def add_flag(
+    df,
+    column
+):
+
+    threshold = percentile_95(
+        df[column]
+    )
+
+    flag_column = (
+        column.replace(
+            "_deg",
+            ""
+        )
+        + "_upper5pct_flag"
+    )
+
+    if np.isnan(threshold):
+
+        df[flag_column] = 0
+
+    else:
+
+        df[flag_column] = (
             pd.to_numeric(
                 df[column],
                 errors="coerce"
             )
-            .dropna()
-        )
-
-        if values.empty:
-
-            thresholds[column] = np.nan
-
-            continue
-
-        threshold = np.percentile(
-            values,
-            95
-        )
-
-        thresholds[column] = threshold
-
-        flag_name = (
-            column
-            .replace("_deg", "")
-            + "_upper5pct_flag"
-        )
-
-        df[flag_name] = (
-            df[column]
             >= threshold
         ).astype(int)
 
-    return df, thresholds
+    return df, threshold
 
 
 # ============================================================
-# PRINT SUMMARY
+# FRONT ANALYSIS
 # ============================================================
 
-def print_summary(
-    df,
-    thresholds,
-    view
-):
+def process_front(df):
 
     print()
     print("=" * 70)
-    print(
-        f"{view.upper()} — MOVEMENT INDICATOR SUMMARY"
-    )
+    print("FRONT VIEW — LEFT/RIGHT MOVEMENT INDICATORS")
     print("=" * 70)
 
-    print()
+    df = calculate_front_indicators(df)
 
-    for column, threshold in thresholds.items():
+    thresholds = {}
+
+    for column in [
+        "knee_asymmetry_deg",
+        "hip_asymmetry_deg",
+        "ankle_asymmetry_deg"
+    ]:
+
+        df, threshold = add_flag(
+            df,
+            column
+        )
+
+        thresholds[column] = threshold
 
         if np.isnan(threshold):
 
@@ -220,48 +250,54 @@ def print_summary(
             print(
                 f"{column}: "
                 f"95th percentile = "
-                f"{threshold:.2f} deg"
+                f"{threshold:.2f}°"
             )
 
+    return df, thresholds
+
+
+# ============================================================
+# SIDE ANALYSIS
+# ============================================================
+
+def process_side(df):
+
     print()
+    print("=" * 70)
+    print("SIDE VIEW — SAGITTAL MOVEMENT INDICATOR")
+    print("=" * 70)
 
-    for column in thresholds:
+    df = calculate_side_indicators(df)
 
-        flag = (
-            column
-            .replace("_deg", "")
-            + "_upper5pct_flag"
-        )
+    df, threshold = add_flag(
+        df,
+        "trunk_excursion_deg"
+    )
 
-        if flag not in df.columns:
-            continue
-
-        count = int(
-            df[flag].sum()
-        )
-
-        total = len(df)
-
-        percentage = (
-            count / total * 100
-        )
+    if np.isnan(threshold):
 
         print(
-            f"{column}: "
-            f"{count}/{total} "
-            f"({percentage:.1f}%) "
-            f"upper-5% observations"
+            "trunk_excursion_deg: no valid data"
         )
 
+    else:
+
+        print(
+            "trunk_excursion_deg: "
+            f"95th percentile = "
+            f"{threshold:.2f}°"
+        )
+
+    return df, {
+        "trunk_excursion_deg": threshold
+    }
+
 
 # ============================================================
-# SAVE RISK TABLE
+# SAVE FRONT TABLE
 # ============================================================
 
-def save_table(
-    df,
-    view
-):
+def save_front_table(df):
 
     columns = [
         "unique_rep",
@@ -272,14 +308,9 @@ def save_table(
         "hip_asymmetry_deg",
         "ankle_asymmetry_deg",
 
-        "trunk_excursion_deg",
-
-        "maximum_joint_asymmetry_deg",
-
         "knee_asymmetry_upper5pct_flag",
         "hip_asymmetry_upper5pct_flag",
-        "ankle_asymmetry_upper5pct_flag",
-        "trunk_excursion_upper5pct_flag"
+        "ankle_asymmetry_upper5pct_flag"
     ]
 
     columns = [
@@ -292,7 +323,7 @@ def save_table(
 
     path = (
         RISK_ROOT
-        / f"{view}_risk_indicators.csv"
+        / "front_risk_indicators.csv"
     )
 
     output.to_csv(
@@ -315,10 +346,57 @@ def save_table(
 
 
 # ============================================================
-# DISTRIBUTION GRAPH
+# SAVE SIDE TABLE
 # ============================================================
 
-def distribution_graph(
+def save_side_table(df):
+
+    columns = [
+        "unique_rep",
+        "participant",
+        "rep_id",
+
+        "trunk_excursion_deg",
+        "trunk_excursion_upper5pct_flag"
+    ]
+
+    columns = [
+        c
+        for c in columns
+        if c in df.columns
+    ]
+
+    output = df[columns].copy()
+
+    path = (
+        RISK_ROOT
+        / "side_risk_indicators.csv"
+    )
+
+    output.to_csv(
+        path,
+        index=False
+    )
+
+    print()
+    print(
+        f"[DONE] Saved: {path}"
+    )
+
+    print(
+        f"Rows: {len(output)}"
+    )
+
+    print(
+        f"Columns: {len(output.columns)}"
+    )
+
+
+# ============================================================
+# DISTRIBUTION PLOT
+# ============================================================
+
+def create_distribution(
     df,
     column,
     title,
@@ -332,62 +410,84 @@ def distribution_graph(
             errors="coerce"
         )
         .dropna()
+        .values
     )
 
-    if values.empty:
+    if len(values) == 0:
 
         print(
-            f"[WARNING] No valid data for {column}"
+            f"[WARNING] No valid data: {column}"
         )
 
         return
 
-    mean = values.mean()
+    mean_value = float(
+        np.mean(values)
+    )
 
-    threshold = np.percentile(
-        values,
-        95
+    median_value = float(
+        np.median(values)
+    )
+
+    percentile_value = float(
+        np.percentile(
+            values,
+            95
+        )
     )
 
     fig, ax = plt.subplots(
-        figsize=(9, 5.5)
+        figsize=(10, 6)
     )
 
     ax.hist(
         values,
         bins=15,
-        alpha=0.75
+        alpha=0.75,
+        edgecolor="black"
     )
 
     ax.axvline(
-        mean,
+        mean_value,
         linewidth=2,
-        label=f"Mean = {mean:.2f}°"
+        label=f"Mean = {mean_value:.2f}°"
     )
 
     ax.axvline(
-        threshold,
+        median_value,
+        linestyle=":",
+        linewidth=2,
+        label=f"Median = {median_value:.2f}°"
+    )
+
+    ax.axvline(
+        percentile_value,
         linestyle="--",
         linewidth=2,
-        label=f"95th percentile = {threshold:.2f}°"
+        label=(
+            f"95th percentile = "
+            f"{percentile_value:.2f}°"
+        )
     )
 
     ax.set_title(
         title,
-        fontsize=15,
+        fontsize=16,
         fontweight="bold"
     )
 
     ax.set_xlabel(
-        xlabel
+        xlabel,
+        fontsize=12
     )
 
     ax.set_ylabel(
-        "Number of repetitions"
+        "Number of repetitions",
+        fontsize=12
     )
 
     ax.grid(
-        True,
+        axis="y",
         alpha=0.20
     )
 
@@ -397,48 +497,58 @@ def distribution_graph(
 
     fig.tight_layout()
 
-    png = GRAPH_ROOT / f"{filename}.png"
-    pdf = GRAPH_ROOT / f"{filename}.pdf"
+    png_path = (
+        GRAPH_ROOT
+        / f"{filename}.png"
+    )
+
+    pdf_path = (
+        GRAPH_ROOT
+        / f"{filename}.pdf"
+    )
 
     fig.savefig(
-        png,
+        png_path,
         dpi=300,
         bbox_inches="tight"
     )
 
     fig.savefig(
-        pdf,
+        pdf_path,
         bbox_inches="tight"
     )
 
     plt.close(fig)
 
     print(
-        f"[DONE] {png.name}"
+        f"[DONE] {png_path.name}"
+    )
+
+    print(
+        f"[DONE] {pdf_path.name}"
     )
 
 
 # ============================================================
-# OVERVIEW GRAPH
+# FRONT ASYMMETRY COMPARISON
 # ============================================================
 
-def overview_graph(df):
+def create_front_asymmetry_comparison(df):
 
     columns = [
         "knee_asymmetry_deg",
         "hip_asymmetry_deg",
-        "ankle_asymmetry_deg",
-        "trunk_excursion_deg"
+        "ankle_asymmetry_deg"
     ]
 
     labels = [
-        "Knee\nasymmetry",
-        "Hip\nasymmetry",
-        "Ankle\nasymmetry",
-        "Trunk\nexcursion"
+        "Knee",
+        "Hip",
+        "Ankle"
     ]
 
     means = []
+    p95 = []
 
     for column in columns:
 
@@ -450,22 +560,39 @@ def overview_graph(df):
             .dropna()
         )
 
-        if values.empty:
-            means.append(np.nan)
-        else:
-            means.append(values.mean())
+        means.append(
+            values.mean()
+        )
 
-    fig, ax = plt.subplots(
-        figsize=(9, 5.5)
-    )
+        p95.append(
+            np.percentile(
+                values,
+                95
+            )
+        )
 
     x = np.arange(
         len(labels)
     )
 
+    width = 0.35
+
+    fig, ax = plt.subplots(
+        figsize=(9, 6)
+    )
+
     ax.bar(
-        x,
-        means
+        x - width / 2,
+        means,
+        width,
+        label="Mean"
+    )
+
+    ax.bar(
+        x + width / 2,
+        p95,
+        width,
+        label="95th percentile"
     )
 
     ax.set_xticks(x)
@@ -475,12 +602,12 @@ def overview_graph(df):
     )
 
     ax.set_ylabel(
-        "Mean angular measure (degrees)"
+        "Absolute left-right angle difference (degrees)"
     )
 
     ax.set_title(
-        "Derived Movement Indicators",
-        fontsize=15,
+        "Front View — Joint Asymmetry Summary",
+        fontsize=16,
         fontweight="bold"
     )
 
@@ -489,33 +616,146 @@ def overview_graph(df):
         alpha=0.20
     )
 
-    fig.tight_layout()
-
-    png = (
-        GRAPH_ROOT
-        / "risk_indicator_overview.png"
+    ax.legend(
+        frameon=False
     )
 
-    pdf = (
+    fig.tight_layout()
+
+    png_path = (
         GRAPH_ROOT
-        / "risk_indicator_overview.pdf"
+        / "front_asymmetry_summary.png"
+    )
+
+    pdf_path = (
+        GRAPH_ROOT
+        / "front_asymmetry_summary.pdf"
     )
 
     fig.savefig(
-        png,
+        png_path,
         dpi=300,
         bbox_inches="tight"
     )
 
     fig.savefig(
-        pdf,
+        pdf_path,
         bbox_inches="tight"
     )
 
     plt.close(fig)
 
     print(
-        f"[DONE] {png.name}"
+        f"[DONE] {png_path.name}"
+    )
+
+    print(
+        f"[DONE] {pdf_path.name}"
+    )
+
+
+# ============================================================
+# SIDE TRUNK SUMMARY
+# ============================================================
+
+def create_side_trunk_summary(df):
+
+    values = (
+        pd.to_numeric(
+            df["trunk_excursion_deg"],
+            errors="coerce"
+        )
+        .dropna()
+    )
+
+    mean_value = values.mean()
+
+    percentile_value = np.percentile(
+        values,
+        95
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(9, 6)
+    )
+
+    ax.hist(
+        values,
+        bins=15,
+        alpha=0.75,
+        edgecolor="black"
+    )
+
+    ax.axvline(
+        mean_value,
+        linewidth=2,
+        label=f"Mean = {mean_value:.2f}°"
+    )
+
+    ax.axvline(
+        percentile_value,
+        linestyle="--",
+        linewidth=2,
+        label=(
+            f"95th percentile = "
+            f"{percentile_value:.2f}°"
+        )
+    )
+
+    ax.set_title(
+        "Side View — Trunk Angular Excursion",
+        fontsize=16,
+        fontweight="bold"
+    )
+
+    ax.set_xlabel(
+        "Trunk angular excursion (degrees)"
+    )
+
+    ax.set_ylabel(
+        "Number of repetitions"
+    )
+
+    ax.grid(
+        axis="y",
+        alpha=0.20
+    )
+
+    ax.legend(
+        frameon=False
+    )
+
+    fig.tight_layout()
+
+    png_path = (
+        GRAPH_ROOT
+        / "side_trunk_excursion_distribution.png"
+    )
+
+    pdf_path = (
+        GRAPH_ROOT
+        / "side_trunk_excursion_distribution.pdf"
+    )
+
+    fig.savefig(
+        png_path,
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    fig.savefig(
+        pdf_path,
+        bbox_inches="tight"
+    )
+
+    plt.close(fig)
+
+    print(
+        f"[DONE] {png_path.name}"
+    )
+
+    print(
+        f"[DONE] {pdf_path.name}"
     )
 
 
@@ -528,7 +768,7 @@ def main():
     print()
     print("=" * 70)
     print(
-        "SQUAT DATASET — RISK-RELATED MOVEMENT ANALYSIS"
+        "SQUAT DATASET — FINAL MOVEMENT INDICATOR ANALYSIS"
     )
     print("=" * 70)
 
@@ -540,23 +780,12 @@ def main():
         "front"
     )
 
-    front = calculate_indicators(
+    front, front_thresholds = process_front(
         front
     )
 
-    front, front_thresholds = add_flags(
+    save_front_table(
         front
-    )
-
-    print_summary(
-        front,
-        front_thresholds,
-        "front"
-    )
-
-    save_table(
-        front,
-        "front"
     )
 
     # ========================================================
@@ -567,140 +796,164 @@ def main():
         "side"
     )
 
-    side = calculate_indicators(
+    side, side_thresholds = process_side(
         side
     )
 
-    side, side_thresholds = add_flags(
+    save_side_table(
         side
-    )
-
-    print_summary(
-        side,
-        side_thresholds,
-        "side"
-    )
-
-    save_table(
-        side,
-        "side"
     )
 
     # ========================================================
-    # GRAPHS
+    # FRONT GRAPHS
     # ========================================================
 
     print()
     print("=" * 70)
     print(
-        "GENERATING MOVEMENT INDICATOR GRAPHS"
+        "GENERATING FRONT-VIEW INDICATOR GRAPHS"
     )
     print("=" * 70)
 
-    # --------------------------------------------------------
-    # Front knee
-    # --------------------------------------------------------
-
-    distribution_graph(
+    create_distribution(
         front,
         "knee_asymmetry_deg",
-        "Distribution of Knee Left-Right Asymmetry",
-        "Absolute knee angle difference (degrees)",
+        "Front View — Knee Left-Right Asymmetry",
+        "Absolute left-right knee angle difference (degrees)",
         "front_knee_asymmetry_distribution"
     )
 
-    # --------------------------------------------------------
-    # Front hip
-    # --------------------------------------------------------
-
-    distribution_graph(
+    create_distribution(
         front,
         "hip_asymmetry_deg",
-        "Distribution of Hip Left-Right Asymmetry",
-        "Absolute hip angle difference (degrees)",
+        "Front View — Hip Left-Right Asymmetry",
+        "Absolute left-right hip angle difference (degrees)",
         "front_hip_asymmetry_distribution"
     )
 
-    # --------------------------------------------------------
-    # Front ankle
-    # --------------------------------------------------------
-
-    distribution_graph(
+    create_distribution(
         front,
         "ankle_asymmetry_deg",
-        "Distribution of Ankle Left-Right Asymmetry",
-        "Absolute ankle angle difference (degrees)",
+        "Front View — Ankle Left-Right Asymmetry",
+        "Absolute left-right ankle angle difference (degrees)",
         "front_ankle_asymmetry_distribution"
     )
 
-    # --------------------------------------------------------
-    # Side trunk
-    # --------------------------------------------------------
-
-    distribution_graph(
-        side,
-        "trunk_excursion_deg",
-        "Distribution of Trunk Angular Excursion",
-        "Trunk angular excursion (degrees)",
-        "trunk_excursion_distribution"
-    )
-
-    # --------------------------------------------------------
-    # Overview
-    # --------------------------------------------------------
-
-    overview_graph(
+    create_front_asymmetry_comparison(
         front
     )
 
     # ========================================================
-    # COMPLETE
+    # SIDE GRAPH
     # ========================================================
 
     print()
     print("=" * 70)
     print(
-        "RISK-RELATED MOVEMENT ANALYSIS COMPLETE"
+        "GENERATING SIDE-VIEW INDICATOR GRAPH"
+    )
+    print("=" * 70)
+
+    create_side_trunk_summary(
+        side
+    )
+
+    # ========================================================
+    # FINAL SUMMARY
+    # ========================================================
+
+    print()
+    print("=" * 70)
+    print(
+        "FINAL MOVEMENT INDICATOR GENERATION COMPLETE"
     )
     print("=" * 70)
 
     print()
-    print(
-        "Tables:"
-    )
+    print("Risk / movement tables:")
 
     print(
         RISK_ROOT
     )
 
     print()
-    print(
-        "Graphs:"
-    )
+    print("Risk / movement graphs:")
 
     print(
         GRAPH_ROOT
     )
 
     print()
+    print("FRONT VIEW:")
+
+    for column, threshold in front_thresholds.items():
+
+        if not np.isnan(threshold):
+
+            count = int(
+                (
+                    front[column]
+                    >= threshold
+                ).sum()
+            )
+
+            print(
+                f"{column}: "
+                f"95th percentile = "
+                f"{threshold:.2f}°, "
+                f"upper 5% = "
+                f"{count}/100"
+            )
+
+    print()
+    print("SIDE VIEW:")
+
+    threshold = side_thresholds[
+        "trunk_excursion_deg"
+    ]
+
+    if not np.isnan(threshold):
+
+        count = int(
+            (
+                side[
+                    "trunk_excursion_deg"
+                ]
+                >= threshold
+            ).sum()
+        )
+
+        print(
+            "trunk_excursion_deg: "
+            f"95th percentile = "
+            f"{threshold:.2f}°, "
+            f"upper 5% = "
+            f"{count}/100"
+        )
+
+    print()
+    print("=" * 70)
+    print("SCIENTIFIC NOTE")
+    print("=" * 70)
+
     print(
-        "IMPORTANT:"
+        "Front-view indicators describe projected "
+        "left-right movement asymmetry."
     )
 
     print(
-        "These are pose-derived movement indicators."
+        "Side-view trunk excursion describes "
+        "sagittal-plane movement."
     )
 
     print(
-        "They are not clinical injury diagnoses."
+        "Upper-5% values are dataset-derived "
+        "statistical flags."
     )
 
     print(
-        "Upper-5% flags are dataset-derived statistical flags,"
-    )
-
-    print(
-        "not medical injury thresholds."
+        "They are NOT clinical injury thresholds "
+        "or injury diagnoses."
     )
 
     print()
