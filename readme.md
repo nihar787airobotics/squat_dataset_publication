@@ -1,4 +1,4 @@
-# Dual-View Squat Movement Dataset
+# Dual-View Squat Movement Dataset hii nihar
 
 Computer-vision-based dual-view squat kinematics and reproducible movement-analysis pipeline.
 
