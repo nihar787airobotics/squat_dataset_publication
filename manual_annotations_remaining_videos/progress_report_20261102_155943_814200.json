@@ -1,0 +1,29 @@
+{
+  "videos": [
+    {
+      "video": "person_17.mp4",
+      "status": "skipped complete",
+      "output": "C:\\squat\\squat_dataset_publication\\manual_annotations_remaining_videos\\batch\\person_17\\manual_squat_keypoint_annotations_P017_front_A01.csv",
+      "incomplete_slots": 0,
+      "detail": "Every selected slot already reviewed; no annotations changed"
+    },
+    {
+      "video": "person_18.mp4",
+      "status": "skipped complete",
+      "output": "C:\\squat\\squat_dataset_publication\\manual_annotations_remaining_videos\\batch\\person_18\\manual_squat_keypoint_annotations_P018_front_A01.csv",
+      "incomplete_slots": 0,
+      "detail": "Every selected slot already reviewed; no annotations changed"
+    },
+    {
+      "video": "person_19.mp4",
+      "status": "completed",
+      "output": "C:\\squat\\squat_dataset_publication\\manual_annotations_remaining_videos\\batch\\person_19\\manual_squat_keypoint_annotations_P019_front_A01.csv",
+      "incomplete_slots": 0,
+      "detail": ""
+    }
+  ],
+  "whatsapp_audit": [
+    "WhatsApp annotation file not found in the output/script folders; missing slots cannot be verified."
+  ],
+  "stopped": false
+}
